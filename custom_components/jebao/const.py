@@ -6,6 +6,7 @@ DOMAIN: Final = "jebao"
 # Configuration
 CONF_DEVICE_ID: Final = "device_id"
 CONF_MODEL: Final = "model"
+CONF_PASSCODE: Final = "passcode"
 CONF_INTERFACES: Final = "interfaces"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_SYNC_CLOCK: Final = "sync_clock"

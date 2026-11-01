@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import CONF_PASSCODE, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
                 # Start the next poll from a fresh session rather than a half-dead one
                 await self.device.disconnect()
                 raise UpdateFailed(f"Error communicating with device: {err}") from err
+        self._save_passcode()
 
         status = self.device.status
         if status is None:
@@ -90,6 +91,19 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
         """Set the pump's clock (which its schedule runs on) to HA's local time."""
         now = dt_util.now().replace(tzinfo=None)
         await self.async_command(lambda device: device.set_clock(now))
+
+    def _save_passcode(self) -> None:
+        """Keep the pump's passcode in the entry, for logging in after a restart.
+
+        Pumps only hand it out for a while after power-up (GAgent's binding
+        window); after that, a client that doesn't know it can't log in until
+        the pump is power-cycled. Login with it works any time.
+        """
+        passcode = self.device.passcode
+        if passcode and self.entry.data.get(CONF_PASSCODE) != passcode:
+            self.hass.config_entries.async_update_entry(
+                self.entry, data={**self.entry.data, CONF_PASSCODE: passcode}
+            )
 
     async def _ensure_connected(self) -> None:
         if self.device.is_connected:

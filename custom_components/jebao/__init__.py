@@ -18,6 +18,7 @@ from homeassistant.helpers.typing import ConfigType
 from .const import (
     CONF_DEVICE_ID,
     CONF_MODEL,
+    CONF_PASSCODE,
     CONF_SCAN_INTERVAL,
     CONF_SYNC_CLOCK,
     DEFAULT_SCAN_INTERVAL,
@@ -131,11 +132,17 @@ def entry_model(entry: ConfigEntry) -> str:
     return entry.options.get(CONF_MODEL) or entry.data.get(CONF_MODEL, MODEL_MDP20000)
 
 
+def _entry_snapshot(entry: ConfigEntry) -> tuple[dict[str, Any], dict[str, Any]]:
+    """What a setup is built from, minus the passcode the coordinator saves itself."""
+    data = {k: v for k, v in entry.data.items() if k != CONF_PASSCODE}
+    return data, dict(entry.options)
+
+
 async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload when options or discovered data change, so names and settings apply."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if data is not None and data["entry_snapshot"] == (dict(entry.data), dict(entry.options)):
-        return  # Title-only change (e.g. setup renaming it); nothing to apply
+    if data is not None and data["entry_snapshot"] == _entry_snapshot(entry):
+        return  # Title or passcode change (the device already has it); nothing to apply
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -199,7 +206,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.info("Setting up Jebao device at %s", host)
 
-    device = MDP20000Device(host=host, device_id=device_id)
+    device = MDP20000Device(
+        host=host, device_id=device_id, passcode=entry.data.get(CONF_PASSCODE)
+    )
     try:
         # Connecting also reads the status. The pump is left in whatever mode it's
         # in: older versions forced it out of its schedule on every start.
@@ -233,7 +242,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "model": model,
         "coordinator": coordinator,
         # What this setup was built from, so the update listener can skip reloads
-        "entry_snapshot": (dict(entry.data), dict(entry.options)),
+        "entry_snapshot": _entry_snapshot(entry),
     }
 
     # Keep a "<model> (<ip>)" title in step with the model (before the listener,
