@@ -24,6 +24,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SYNC_CLOCK,
     DOMAIN,
+    LOCAL_PORT,
     MODEL_MDP20000,
     SELECTABLE_MODELS,
 )
@@ -207,7 +208,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("Setting up Jebao device at %s", host)
 
     device = MDP20000Device(
-        host=host, device_id=device_id, passcode=entry.data.get(CONF_PASSCODE)
+        host=host,
+        device_id=device_id,
+        passcode=entry.data.get(CONF_PASSCODE),
+        local_port=LOCAL_PORT,
     )
     try:
         # Connecting also reads the status. The pump is left in whatever mode it's

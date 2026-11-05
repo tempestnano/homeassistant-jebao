@@ -16,6 +16,10 @@ DEFAULT_NAME: Final = "Jebao Pump"
 DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
 DEFAULT_SYNC_CLOCK: Final = True
 
+# HA connects to every pump from this port, so a reconnect replaces its previous session
+# on the pump instead of leaving a stale one in a slot. Below the OS ephemeral range.
+LOCAL_PORT: Final = 32416
+
 # Models
 MODEL_MDP20000: Final = "MDP-20000"
 MODEL_MDP15000: Final = "MDP-15000"
