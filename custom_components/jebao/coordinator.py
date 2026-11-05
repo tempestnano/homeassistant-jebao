@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import Optional
 
@@ -19,6 +19,13 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_PASSCODE, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+# The pumps' Wi-Fi drops for a minute or so at a time. Keep showing the last status
+# through that; commands sent meanwhile still fail, so nothing is silently lost.
+OFFLINE_GRACE = timedelta(seconds=90)
+
+# HA logs only the first failed poll, which hides a pump that stays unreachable
+OFFLINE_LOG_INTERVAL = timedelta(minutes=15)
 
 
 class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
@@ -37,6 +44,8 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
         self.entry = entry
         self.device_id = device_id
         self._discovery_attempted = False
+        self._failing_since: Optional[datetime] = None
+        self._next_offline_log: Optional[datetime] = None
         # Polls and commands share one session; keep them from interleaving
         self._lock = asyncio.Lock()
 
@@ -56,13 +65,42 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
             except JebaoError as err:
                 # Start the next poll from a fresh session rather than a half-dead one
                 await self.device.disconnect()
-                raise UpdateFailed(f"Error communicating with device: {err}") from err
+                return self._poll_failed(err)
         self._save_passcode()
+        self._poll_succeeded()
 
         status = self.device.status
         if status is None:
             raise UpdateFailed("Pump sent a status the integration couldn't decode")
         return status
+
+    def _poll_failed(self, err: JebaoError) -> PumpStatus:
+        """Ride out a short drop; after that, report the pump as offline."""
+        now = dt_util.utcnow()
+        if self._failing_since is None:
+            self._failing_since = now
+            self._next_offline_log = now + OFFLINE_LOG_INTERVAL
+        if self.data is not None and now - self._failing_since < OFFLINE_GRACE:
+            _LOGGER.debug("Poll of %s failed, keeping last status: %s", self.entry.title, err)
+            return self.data
+        if now >= self._next_offline_log:
+            self._next_offline_log = now + OFFLINE_LOG_INTERVAL
+            _LOGGER.warning(
+                "%s has been offline since %s: %s",
+                self.entry.title,
+                dt_util.as_local(self._failing_since).isoformat(timespec="seconds"),
+                err,
+            )
+        raise UpdateFailed(f"Error communicating with device: {err}") from err
+
+    def _poll_succeeded(self) -> None:
+        if self._failing_since is not None and self.last_update_success is False:
+            _LOGGER.info(
+                "%s is back after %s offline",
+                self.entry.title,
+                dt_util.utcnow() - self._failing_since,
+            )
+        self._failing_since = None
 
     async def async_command(
         self, command: Callable[[MDP20000Device], Awaitable[None]]
@@ -81,9 +119,20 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
             except JebaoError as err:
                 await self.device.disconnect()
                 raise HomeAssistantError(f"Pump command failed: {err}") from err
-        # Writes return the pump's status report, so there's no need to poll
-        if self.device.status is not None:
-            self.async_set_updated_data(self.device.status)
+            # Read the result straight away (the new value reads back at once).
+            # Publishing also restarts the poll timer, so publishing the status from
+            # before the write would hide the change for a whole interval.
+            try:
+                await self.device.update()
+                status = self.device.status
+            except JebaoError as err:
+                # The pump took the command, so don't report it as failed
+                _LOGGER.debug("Read-back from %s failed: %s", self.entry.title, err)
+                await self.device.disconnect()
+                status = None
+        if status is not None:
+            self._poll_succeeded()
+            self.async_set_updated_data(status)
         else:
             await self.async_request_refresh()
 
