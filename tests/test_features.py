@@ -1,13 +1,16 @@
 """Schedule, clock, faults, speed setting, model option and pump identification."""
+import asyncio
 from datetime import datetime
 from unittest.mock import patch
 
 from jebao import DiscoveredDevice
 from jebao.datapoints import encode_clock, encode_write
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.jebao.const import DOMAIN
@@ -233,3 +236,68 @@ async def test_turn_on_with_speed_when_on_just_sets_speed(hass: HomeAssistant, p
         )
     assert pump.commands == [bytes([0x20, 0, 100, 0])]
     assert slept == []
+
+
+async def test_cycle_switch(hass: HomeAssistant, pump, monkeypatch):
+    """The cycle starts at its normal speed; a speed set by hand stops it."""
+    monkeypatch.setattr("custom_components.jebao.cycle.PumpCycle.SETTLE", 0.0)
+    await setup(hass, make_entry())
+    cycle = entity_id(hass, "switch", "cycle")
+    assert hass.states.get(cycle).state == "off"
+    await hass.services.async_call(
+        DOMAIN, "set_cycle", {"entity_id": cycle, "normal_speed": 50, "enable": True},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    for _ in range(40):  # the cycle sets the speed in a task of its own
+        if hass.states.get(cycle).attributes["phase"] == "normal":
+            break
+        await asyncio.sleep(0.05)
+    assert pump.commands == [bytes([0x20, 0, 50, 0])]
+    state = hass.states.get(cycle)
+    assert state.state == "on"
+    assert state.attributes["normal_speed"] == 50
+    assert state.attributes["phase"] == "normal"
+
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": entity_id(hass, "number", "speed_setting"), "value": 80},
+        blocking=True,
+    )
+    assert hass.states.get(cycle).state == "off"
+    assert pump.commands[-1] == bytes([0x20, 0, 80, 0])
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN, "set_cycle", {"entity_id": entity_id(hass, "switch", "schedule"),
+                                  "normal_speed": 40},
+            blocking=True,
+        )
+
+
+async def test_cycle_write_retried(monkeypatch):
+    """A cycle write that fails (the module is often silent after the motor starts) is retried."""
+    from custom_components.jebao import switch
+
+    monkeypatch.setattr(switch, "WRITE_RETRY_DELAY", 0)
+    calls = []
+
+    class Coordinator:
+        async def async_command(self, command):
+            calls.append(command)
+            if len(calls) < 3:
+                raise HomeAssistantError("Connection timed out")
+
+    pump = switch._CoordinatorPump(Coordinator())
+    await pump.async_cycle_write("motor_speed", 50)
+    assert len(calls) == 3
+
+    calls.clear()
+    Coordinator.async_command = lambda self, command: calls.append(command) or _fail()
+    with pytest.raises(HomeAssistantError):
+        await pump.async_cycle_write("switch_on", True)
+    assert len(calls) == switch.WRITE_ATTEMPTS
+
+
+async def _fail():
+    raise HomeAssistantError("Connection timed out")

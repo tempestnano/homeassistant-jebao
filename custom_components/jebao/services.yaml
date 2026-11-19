@@ -15,3 +15,59 @@ set_schedule:
       required: false
       selector:
         boolean:
+
+set_cycle:
+  target:
+    entity:
+      integration: jebao
+      domain: switch
+  fields:
+    normal_speed:
+      required: false
+      example: 60
+      selector:
+        number:
+          min: 30
+          max: 100
+    run_minutes:
+      required: false
+      example: 10
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+    pause_speed:
+      required: false
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+    pause_seconds:
+      required: false
+      example: 10
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: s
+    boost_speed:
+      required: false
+      example: 100
+      selector:
+        number:
+          min: 30
+          max: 100
+    boost_seconds:
+      required: false
+      example: 30
+      selector:
+        number:
+          min: 1
+          max: 3600
+          unit_of_measurement: s
+    enable:
+      required: false
+      selector:
+        boolean:

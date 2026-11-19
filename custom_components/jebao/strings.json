@@ -140,6 +140,9 @@
     "switch": {
       "schedule": {
         "name": "Schedule"
+      },
+      "cycle": {
+        "name": "Cycle"
       }
     }
   },
@@ -155,6 +158,40 @@
         "enable": {
           "name": "Enable",
           "description": "Turn the schedule on (true) or off (false) afterwards. Leave out to keep it as it is."
+        }
+      }
+    },
+    "set_cycle": {
+      "name": "Set cycle",
+      "description": "Changes the settings of a pump's Cycle switch, which runs the pump at a normal speed for some minutes, pauses, boosts for some seconds, and repeats. Settings left out are kept.",
+      "fields": {
+        "normal_speed": {
+          "name": "Normal speed",
+          "description": "Speed for the run period (30-100)."
+        },
+        "run_minutes": {
+          "name": "Run minutes",
+          "description": "How long to run at the normal speed (1-1440 minutes)."
+        },
+        "pause_speed": {
+          "name": "Pause speed",
+          "description": "Speed for the pause; 0 turns the pump off (0 or 30-100)."
+        },
+        "pause_seconds": {
+          "name": "Pause seconds",
+          "description": "How long to pause (0-3600 s; 0 skips the pause)."
+        },
+        "boost_speed": {
+          "name": "Boost speed",
+          "description": "Speed for the boost (30-100)."
+        },
+        "boost_seconds": {
+          "name": "Boost seconds",
+          "description": "How long to boost (1-3600 s)."
+        },
+        "enable": {
+          "name": "Enable",
+          "description": "Turn the cycle on (true) or off (false). Leave out to keep it as it is; a running cycle starts over with the new settings."
         }
       }
     }

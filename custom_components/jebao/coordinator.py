@@ -24,6 +24,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from .cycle import PumpCycle
 from .const import (
     CONF_PASSCODE,
     CONF_SYNC_CLOCK,
@@ -73,6 +74,8 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
         # Starting a feed turns the schedule off (as in the app); turn it back on
         # once the feed is over. True while armed, "feeding" once the feed is seen.
         self._resume_schedule: bool | str = False
+        # The Cycle switch's PumpCycle, while it's set up (see cycle.py)
+        self.cycle: PumpCycle | None = None
 
         super().__init__(
             hass,
@@ -166,13 +169,21 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
         return self._status()
 
     async def async_command(
-        self, command: Callable[[MDP20000Device], Awaitable[None]]
+        self,
+        command: Callable[[MDP20000Device], Awaitable[None]],
+        *,
+        takes_over: bool = False,
     ) -> None:
         """Run a control command and publish the pump's new state.
+
+        takes_over: someone set the power, speed or schedule, so stop the cycle and
+        leave the pump as they set it.
 
         Raises:
             HomeAssistantError: The pump didn't take the command
         """
+        if takes_over and self.cycle is not None:
+            self.cycle.taken_over()
         self._sync_host()
         try:
             await command(self.device)
@@ -212,7 +223,7 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
             await self.async_sync_clock()  # the schedule runs on the pump's clock
         now = dt_util.now().replace(tzinfo=None)
         await self.async_command(
-            lambda device: device.set_schedule_enabled(enabled, now=now)
+            lambda device: device.set_schedule_enabled(enabled, now=now), takes_over=enabled
         )
 
     async def async_turn_on(self, speed: int | None = None) -> None:
@@ -244,7 +255,14 @@ class JebaoDataUpdateCoordinator(DataUpdateCoordinator[PumpStatus]):
                 await asyncio.sleep(POWER_ON_SETTLE)
             await device.set_speed(speed)
 
-        await self.async_command(command)
+        await self.async_command(command, takes_over=True)
+
+    async def async_refresh_status(self) -> None:
+        """Read the pump's status now and publish it."""
+        self._sync_host()
+        await self.device.update()
+        self._consecutive_failures = 0
+        self.async_set_updated_data(self._status())
 
     async def async_sync_clock(self) -> None:
         """Set the pump's clock (which its schedule runs on) to HA's local time."""

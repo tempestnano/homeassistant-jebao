@@ -83,7 +83,7 @@ class JebaoPumpFan(JebaoEntity, FanEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the pump."""
-        await self.coordinator.async_command(lambda device: device.turn_off())
+        await self.coordinator.async_command(lambda device: device.turn_off(), takes_over=True)
 
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the speed percentage of the pump."""
@@ -91,4 +91,6 @@ class JebaoPumpFan(JebaoEntity, FanEntity):
             await self.async_turn_off()
             return
         speed = round(percentage_to_ranged_value(SPEED_RANGE, percentage))
-        await self.coordinator.async_command(lambda device: device.set_speed(speed))
+        await self.coordinator.async_command(
+            lambda device: device.set_speed(speed), takes_over=True
+        )

@@ -77,4 +77,6 @@ class JebaoSpeedNumber(JebaoEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the pump speed."""
-        await self.coordinator.async_command(lambda device: device.set_speed(int(value)))
+        await self.coordinator.async_command(
+            lambda device: device.set_speed(int(value)), takes_over=True
+        )
